@@ -587,6 +587,8 @@ static void check_counter_overflow(void)
 		else
 			report(cnt.count == 0xffffffffffff || cnt.count < 7, "cntr-%d", i);
 
+		report(check_irq() == (i % 2), "irq-%d", i);
+
 		if (!this_cpu_has_perf_global_status())
 			continue;
 
@@ -595,7 +597,6 @@ static void check_counter_overflow(void)
 		wrmsr(pmu.msr_global_status_clr, status);
 		status = rdmsr(pmu.msr_global_status);
 		report(!(status & (1ull << idx)), "status clear-%d", i);
-		report(check_irq() == (i % 2), "irq-%d", i);
 	}
 
 	report_prefix_pop();
