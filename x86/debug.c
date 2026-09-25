@@ -100,7 +100,7 @@ static void __run_single_step_db_test(db_test_fn test, db_report_fn report_fn)
 	bool ign;
 
 	n = 0;
-	write_dr6(0);
+	write_dr6(DR6_ACTIVE_LOW);
 
 	start = test();
 	report_fn(start, "");
@@ -114,7 +114,7 @@ static void __run_single_step_db_test(db_test_fn test, db_report_fn report_fn)
 		return;
 
 	n = 0;
-	write_dr6(0);
+	write_dr6(DR6_ACTIVE_LOW);
 
 	/*
 	 * Run the test in usermode.  Use the expected start RIP from the first
@@ -336,7 +336,7 @@ static void report_singlestep_with_movss_blocking_and_dr7_gd(unsigned long start
 
 static noinline unsigned long singlestep_with_movss_blocking_and_dr7_gd(void)
 {
-	unsigned long start_rip;
+	unsigned long scratch = DR6_ACTIVE_LOW;
 
 	write_dr7(DR7_GD);
 
@@ -348,7 +348,6 @@ static noinline unsigned long singlestep_with_movss_blocking_and_dr7_gd(void)
 	 * General Detect #DB.
 	 */
 	asm volatile(
-		"xor %0, %0\n\t"
 		"pushf\n\t"
 		"pop %%rax\n\t"
 		"or $(1<<8),%%rax\n\t"
@@ -361,9 +360,9 @@ static noinline unsigned long singlestep_with_movss_blocking_and_dr7_gd(void)
 		"push %%rax\n\t"
 		"popf\n\t"
 		"lea 1b(%%rip),%0\n\t"
-		: "=r" (start_rip) : : "rax"
+		: "+r" (scratch) :: "rax"
 	);
-	return start_rip;
+	return scratch;
 }
 
 static void report_singlestep_with_sti_hlt(unsigned long start,
@@ -480,7 +479,7 @@ int main(int ac, char **av)
 	write_cr4(cr4 | X86_CR4_DE);
 	read_dr4();
 	report(got_ud, "DR4 read got #UD with CR4.DE == 1");
-	write_dr6(0);
+	write_dr6(DR6_ACTIVE_LOW);
 
 	extern unsigned char sw_bp;
 	asm volatile("int3; sw_bp:");
@@ -509,7 +508,7 @@ int main(int ac, char **av)
 	n = 0;
 	extern unsigned char hw_bp2;
 	write_dr2(&hw_bp2);
-	write_dr6(DR6_BS | DR6_TRAP1);
+	write_dr6(DR6_ACTIVE_LOW | DR6_BS | DR6_TRAP1);
 	asm volatile("hw_bp2: nop");
 	report(n == 1 &&
 	       db_addr[0] == ((unsigned long)&hw_bp2) &&
@@ -528,7 +527,7 @@ int main(int ac, char **av)
 
 	n = 0;
 	write_dr1((void *)&value);
-	write_dr6(DR6_BS);
+	write_dr6(DR6_ACTIVE_LOW | DR6_BS);
 	write_dr7(0x00d0040a); // 4-byte write
 
 	extern unsigned char hw_wp1;
@@ -542,7 +541,7 @@ int main(int ac, char **av)
 	       "hw watchpoint (test that dr6.BS is not cleared)");
 
 	n = 0;
-	write_dr6(0);
+	write_dr6(DR6_ACTIVE_LOW);
 
 	extern unsigned char hw_wp2;
 	asm volatile(
@@ -555,7 +554,7 @@ int main(int ac, char **av)
 	       "hw watchpoint (test that dr6.BS is not set)");
 
 	n = 0;
-	write_dr6(0);
+	write_dr6(DR6_ACTIVE_LOW);
 	extern unsigned char sw_icebp;
 	asm volatile(".byte 0xf1; sw_icebp:");
 	report(n == 1 &&
