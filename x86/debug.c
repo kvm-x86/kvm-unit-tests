@@ -429,30 +429,60 @@ static noinline uint64_t bus_lock(uint64_t magic)
 	return READ_ONCE(*(uint64_t *)val);
 }
 
-static void bus_lock_test(void)
+static void bus_lock_test(u64 debugctl)
 {
 	const uint64_t magic = 0xdeadbeefdeadbeefull;
-	bool bus_lock_db = false;
 	uint64_t val;
+	bool ign;
+
+	if (debugctl & DEBUGCTLMSR_BUS_LOCK_DETECT)
+		report_fail("DEBUGCTL.BUS_LOCK_DETECT should be '0' at RESET");
 
 	/*
 	 * Generate a bus lock (via a locked access that splits cache lines)
 	 * in CPL0 and again in CPL3 (Bus Lock Detect only affects CPL3), and
 	 * verify that no #AC or #DB is generated (the relevant features are
-	 * not enabled).
+	 * not yet enabled).
 	 */
 	val = bus_lock(magic);
 	report(!got_ac && !n && val == magic,
 	       "CPL0 Split Lock #AC = %u (#DB = %u), val = %lx (wanted %lx)",
 	       got_ac, n, val, magic);
 
-	val = run_in_user((usermode_func)bus_lock, DB_VECTOR, magic, 0, 0, 0, &bus_lock_db);
-	report(!bus_lock_db && val == magic,
-	       "CPL3 Bus Lock #DB = %u, val = %lx (wanted %lx)",
-	       bus_lock_db, val, magic);
+	val = run_in_user((usermode_func)bus_lock, GP_VECTOR, magic, 0, 0, 0, &ign);
+	report(!got_ac && !n && val == magic,
+	       "CPL3 Bus Lock #AC = %u, #DB = %u, val = %lx (wanted %lx)",
+	       got_ac, n, val, magic);
+
+	got_ac = false;
+
+	if (!this_cpu_has(X86_FEATURE_BUS_LOCK_DETECT))
+		return;
+
+	wrmsr(MSR_IA32_DEBUGCTLMSR, debugctl | DEBUGCTLMSR_BUS_LOCK_DETECT);
+
+	val = bus_lock(magic);
+	report(!got_ac && !n && val == magic,
+		"CPL0 Split Lock shouldn't trigger Bus Lock Detect: #DB = %u, #AC = %u, val = %lx (wanted %lx)",
+		n, got_ac, val, magic);
+
+	val = run_in_user((usermode_func)bus_lock, GP_VECTOR, magic, 0, 0, 0, &ign);
+	report(n == 1 && !(dr6[0] & DR6_BUS_LOCK) && val == magic && !got_ac,
+		"CPL3 Bus Lock Detect #DB (nr #DBs = %u, DR6 = %lx, #AC = %u, val = %lx (wanted %lx))",
+		n, dr6[0], got_ac, val, magic);
 
 	n = 0;
-	got_ac = false;
+	write_dr7(DR7_FIXED_1 | DR7_GD);
+	write_dr7(DR7_FIXED_1);
+
+	/* Verify DR6.BLD is preserved on an unrelated #DB. */
+	report(n == 1 && !(dr6[0] & DR6_BUS_LOCK) && (dr6[0] & DR6_BD),
+		"DR6.BLD preserved on General Detect #DB (nr #DBs = %u, DR6 = %lx)",
+		n, dr6[0]);
+
+	n = 0;
+	write_dr6(dr6_control_value);
+	wrmsr(MSR_IA32_DEBUGCTLMSR, debugctl);
 }
 
 static void run_tests(unsigned long __dr6_control_value)
@@ -473,7 +503,7 @@ static void run_tests(unsigned long __dr6_control_value)
 	if (!this_cpu_has(X86_FEATURE_BUS_LOCK_DETECT))
 		dr6_base_value |= DR6_BUS_LOCK;
 
-	bus_lock_test();
+	bus_lock_test(debugctl);
 
 	/*
 	 * Enable Bus Lock Detect to workaround an AMD ucode bug where DR6.BLD
