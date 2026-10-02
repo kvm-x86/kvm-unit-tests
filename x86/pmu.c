@@ -578,14 +578,16 @@ static void check_counter_overflow(void)
 			cnt.config &= ~EVNTSEL_INT;
 		idx = event_to_global_idx(&cnt);
 		__measure(&cnt, cnt.count);
-		if (pmu.is_intel) {
-			if (pmu.errata.instructions_retired_overcount)
-				report(cnt.count < 14, "cntr-%d", i);
-			else
-				report(cnt.count == 1, "cntr-%d", i);
-		}
+
+		/*
+		 * If the CPU overcounts instructions retired on asynchronous
+		 * VM-Exits, arbitrarily allow for one VM-Exit per 5000 nops in
+		 * the measurement loop.
+		 */
+		if (pmu.errata.instructions_retired_overcount)
+			report(cnt.count < N / 5000, "cntr-%d", i);
 		else
-			report(cnt.count == 0xffffffffffff || cnt.count < 7, "cntr-%d", i);
+			report(cnt.count == 1, "cntr-%d", i);
 
 		report(check_irq() == (i % 2), "irq-%d", i);
 
